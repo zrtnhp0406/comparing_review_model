@@ -7,9 +7,9 @@ from collections import defaultdict
 # - 2: Bia 2 thắng (beer 2 wins) - tương ứng với nhãn gốc 1
 labels = [0, 1, 2]
 positive_labels = [0, 1, 2]
-negative_label = None  # Không còn negative label nữa, tất cả đều là positive
+negative_label = 3  # Không còn negative label nữa, tất cả đều là positive
 
-def compute_metrics(true_labels, pred_labels):
+def compute_metrics(true_labels, pred_labels, fp_bonus, fn_bonus):
 
     tp = defaultdict(int)
     fp = defaultdict(int)
@@ -22,12 +22,16 @@ def compute_metrics(true_labels, pred_labels):
                 tp[true] += 1
 
         else:
-
+            if true in positive_labels and pred == negative_label:
+                fn[true] += 1
+            elif true == negative_label and pred in positive_labels:
+                fp[pred] += 1
             # Nếu dự đoán sai
-            if true in positive_labels and pred in positive_labels:
+            elif true in positive_labels and pred in positive_labels:
                 fn[true] += 1
                 fp[pred] += 1
-
+    fn[true] += fn_bonus
+    fp[pred] += fp_bonus
     return tp, fp, fn
 
 
