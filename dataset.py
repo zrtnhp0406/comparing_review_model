@@ -65,12 +65,6 @@ def create_aspect_dataset(data, contain_aspect_sentences=False):
                 
                 # Cập nhật aspect gần nhất cho các câu trung tính phía sau
                 last_seen_aspects = active_aspects_in_current
-            
-            elif contain_aspect_sentences and is_neutral:
-                # Nếu là câu trung tính và chế độ True được bật
-                # Thêm câu này vào tất cả các aspect xuất hiện gần nhất ngay phía trước nó
-                for aspect in last_seen_aspects:
-                    current_review_aspects[aspect].append(cleaned_sentence)
 
         # Sau khi duyệt hết 1 review, nối các câu lại bằng dấu "."
         for aspect in aspects:
@@ -144,7 +138,27 @@ def prepare_training_data(comparison_df, aspect_datasets_dict):
         
     full_train_dataset = pd.concat(all_train_samples, ignore_index=True)
 
-    # Loại bỏ các dòng không có nhãn (NaN) trước khi xử lý
+    case1 = (
+        full_train_dataset['aspect_pred'].isna() &
+        full_train_dataset['review_1'].notna() &
+        full_train_dataset['review_2'].notna()
+    )
+
+    case2 = (
+        full_train_dataset['aspect_pred'].notna() &
+        (
+            full_train_dataset['review_1'].isna() |
+            full_train_dataset['review_2'].isna()
+        )
+    )
+
+    bad_cases = case1 | case2
+    num_case1 = int(case1.sum())
+    num_case2 = int(case2.sum())
+    print(f"Drop {bad_cases.sum()} bad samples")
+    full_train_dataset = full_train_dataset[~bad_cases]
+
+    # ===== tiếp tục pipeline cũ =====
     full_train_dataset = full_train_dataset.dropna(subset=['aspect_pred'])
 
     # --- LABEL MAPPING: [-1, 0, 1] → [0, 1, 2] ---
@@ -160,7 +174,7 @@ def prepare_training_data(comparison_df, aspect_datasets_dict):
     # Ép kiểu sang int để đưa vào CrossEntropyLoss
     full_train_dataset['aspect_pred'] = full_train_dataset['aspect_pred'].astype(int)
 
-    return full_train_dataset
+    return full_train_dataset,num_case1, num_case2
 
 class BeerComparisonDataset(Dataset):
     def __init__(self, dataframe, tokenizer, max_length=128):
@@ -173,11 +187,9 @@ class BeerComparisonDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
-        
-        # Xử lý giá trị NULL/NaN trong review
-        # Nếu review bị thiếu, ta thay bằng chuỗi trống hoặc "[EMPTY]"
-        review_1 = str(row['review_1']) if pd.notnull(row['review_1']) else ""
-        review_2 = str(row['review_2']) if pd.notnull(row['review_2']) else ""
+    
+        review_1 = str(row['review_1'])
+        review_2 = str(row['review_2'])
         
         # Tokenize review 1
         encoding_1 = self.tokenizer(
